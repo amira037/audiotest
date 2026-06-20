@@ -112,7 +112,7 @@
       <div class="hint warn-text" style="margin-top:12px;">⚠ 측정 전 OS/브라우저의 자동 게인 제어(AGC)·에코 제거·노이즈 억제를 모두 끄세요. DAC 출력(L/R) → 인터페이스 입력 CH1/CH2로 연결합니다.</div>
       <div class="btn-row">
         <button class="btn btn-primary" id="btnInit">디바이스 연결</button>
-        <button class="btn" id="btnMonitor" disabled>레벨 모니터</button>
+        <button class="btn" id="btnMonitor" disabled>♪ 테스트 신호 + 모니터</button>
         <button class="btn btn-primary" id="btnRunAll" disabled>▶ 전체 자동 측정</button>
         <button class="btn btn-stop" id="btnStop" disabled>■ 정지</button>
       </div>
@@ -120,13 +120,21 @@
   </div>
 
   <div class="panel">
-    <div class="panel-head"><span>02 · 입력 레벨 모니터 (게인 조정)</span><span id="clipWarning" style="color:var(--red); display:none;">⚠ CLIPPING</span></div>
+    <div class="panel-head"><span>02 · 레벨 모니터 (출력 / 입력)</span><span id="signalState" style="color:var(--ink-faint);">신호 정지</span></div>
     <div class="panel-body">
+      <div style="font-size:9.5px;letter-spacing:0.1em;color:var(--amber);margin-bottom:7px;">▶ 출력 (앱 → DAC 송출 신호)</div>
       <div class="level-meters">
-        <div class="level-row"><span class="level-tag">CH1 / L</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-target"></div><div class="level-bar-fill" id="meterL"></div></div><span class="level-db" id="meterLdb">−∞</span></div>
-        <div class="level-row"><span class="level-tag">CH2 / R</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-target"></div><div class="level-bar-fill" id="meterR"></div></div><span class="level-db" id="meterRdb">−∞</span></div>
+        <div class="level-row"><span class="level-tag">OUT L</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-bar-fill" id="outMeterL" style="background:linear-gradient(90deg,var(--amber-dim),var(--amber));"></div></div><span class="level-db" id="outMeterLdb">−∞</span></div>
+        <div class="level-row"><span class="level-tag">OUT R</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-bar-fill" id="outMeterR" style="background:linear-gradient(90deg,var(--amber-dim),var(--amber));"></div></div><span class="level-db" id="outMeterRdb">−∞</span></div>
       </div>
-      <div class="hint" style="margin-top:10px;">노란 선 = -6dBFS 목표. CH1/CH2가 독립 표시됩니다. 두 채널 피크를 -6dBFS 근처로 맞춘 뒤 자동 측정을 실행하세요. -1dBFS 초과는 클리핑입니다.</div>
+      <div class="hint" style="margin:5px 0 14px;">출력 미터가 안 움직이면 신호가 생성되지 않는 것 — 테스트 신호 버튼을 눌렀는지, 출력 디바이스 선택이 맞는지 확인하세요.</div>
+
+      <div style="font-size:9.5px;letter-spacing:0.1em;color:var(--cyan);margin-bottom:7px;display:flex;justify-content:space-between;"><span>◀ 입력 (EVO4 → 앱 수신 신호) · 게인 조정 대상</span><span id="clipWarning" style="color:var(--red); display:none;">⚠ CLIPPING</span></div>
+      <div class="level-meters">
+        <div class="level-row"><span class="level-tag">IN CH1/L</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-target"></div><div class="level-bar-fill" id="meterL"></div></div><span class="level-db" id="meterLdb">−∞</span></div>
+        <div class="level-row"><span class="level-tag">IN CH2/R</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-target"></div><div class="level-bar-fill" id="meterR"></div></div><span class="level-db" id="meterRdb">−∞</span></div>
+      </div>
+      <div class="hint" style="margin-top:8px;">노란 선 = -6dBFS 목표. <b>출력은 움직이는데 입력이 안 움직이면</b> → 케이블 연결 또는 입력 디바이스(EVO4) 문제. <b>둘 다 안 움직이면</b> → 출력 디바이스 문제. 입력 피크를 -6dBFS 근처로 맞춘 뒤 자동 측정을 실행하세요.</div>
     </div>
   </div>
 
@@ -182,6 +190,7 @@
   const FFT_SIZE = 16384, SETTLE_MS = 400, CAPTURE_MS = 600;
   let audioCtx=null, osc=null, streamDest=null, outEl=null, chMerger=null, gainL=null, gainR=null;
   let mediaStream=null, source=null, splitter=null, analyserL=null, analyserR=null;
+  let outAnalyserL=null, outAnalyserR=null;
   let monitoring=false, sequenceRunning=false, aborted=false, meterRaf=null, specRaf=null;
   let frDataL=[], frDataR=[];
   const el = id => document.getElementById(id);
@@ -210,6 +219,7 @@
     audioCtx=new (window.AudioContext||window.webkitAudioContext)();
     const outId=el('outputDevice').value, inId=el('inputDevice').value;
     if(!outId||!inId) throw new Error('출력/입력 디바이스를 선택하세요.');
+    log('오디오 그래프 생성 중… 출력='+el('outputDevice').selectedOptions[0].textContent+' / 입력='+el('inputDevice').selectedOptions[0].textContent);
     osc=audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=parseFloat(el('freq').value);
     streamDest=audioCtx.createMediaStreamDestination();
     chMerger=audioCtx.createChannelMerger(2);
@@ -217,10 +227,21 @@
     osc.connect(gainL); osc.connect(gainR);
     gainL.connect(chMerger,0,0); gainR.connect(chMerger,0,1);
     chMerger.connect(streamDest);
+    // output analysers (tap the signal we send out, per channel)
+    outAnalyserL=audioCtx.createAnalyser(); outAnalyserL.fftSize=2048; outAnalyserL.smoothingTimeConstant=0;
+    outAnalyserR=audioCtx.createAnalyser(); outAnalyserR.fftSize=2048; outAnalyserR.smoothingTimeConstant=0;
+    gainL.connect(outAnalyserL); gainR.connect(outAnalyserR);
     outEl=document.createElement('audio'); outEl.srcObject=streamDest.stream; outEl.autoplay=true;
-    if(typeof outEl.setSinkId==='function'){await outEl.setSinkId(outId);}
-    osc.start(); await outEl.play().catch(()=>{});
+    if(typeof outEl.setSinkId==='function'){
+      try{ await outEl.setSinkId(outId); log('✓ 출력 디바이스 라우팅 성공: '+el('outputDevice').selectedOptions[0].textContent); }
+      catch(e){ log('✗ setSinkId 실패 ('+e.name+'): 시스템 기본 출력으로 재생됩니다. 출력 디바이스를 다시 선택해 보세요.', true); }
+    } else { log('✗ 이 브라우저는 setSinkId 미지원 — 시스템 기본 출력으로 재생됩니다.', true); }
+    osc.start(); await outEl.play().catch(e=>log('재생 시작 경고: '+e.message,true));
+    log('입력 캡처 요청 중… (AGC/에코제거/노이즈억제 비활성화)');
     mediaStream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:inId},autoGainControl:false,echoCancellation:false,noiseSuppression:false,channelCount:2,sampleRate:audioCtx.sampleRate}});
+    const trackLabel=mediaStream.getAudioTracks()[0]?.label||'(이름없음)';
+    log('✓ 입력 캡처 시작: '+trackLabel);
+    if(/microphone|mic|내장|built-?in/i.test(trackLabel)) log('⚠ 입력이 마이크로 보입니다. 측정하려면 EVO4 등 인터페이스 입력을 선택하세요.', true);
     source=audioCtx.createMediaStreamSource(mediaStream);
     splitter=audioCtx.createChannelSplitter(2); source.connect(splitter);
     analyserL=audioCtx.createAnalyser(); analyserL.fftSize=FFT_SIZE; analyserL.smoothingTimeConstant=0;
@@ -243,8 +264,13 @@
     if(outEl){outEl.pause();outEl.srcObject=null;}
     if(audioCtx)audioCtx.close().catch(()=>{});
     audioCtx=osc=streamDest=outEl=null; mediaStream=source=splitter=analyserL=analyserR=null;
+    outAnalyserL=outAnalyserR=null;
     el('meterL').style.width='0%'; el('meterR').style.width='0%';
-    el('meterLdb').textContent='−∞'; el('meterRdb').textContent='−∞'; el('clipWarning').style.display='none';
+    el('outMeterL').style.width='0%'; el('outMeterR').style.width='0%';
+    el('meterLdb').textContent='−∞'; el('meterRdb').textContent='−∞';
+    el('outMeterLdb').textContent='−∞'; el('outMeterRdb').textContent='−∞';
+    el('clipWarning').style.display='none';
+    el('signalState').textContent='신호 정지'; el('signalState').style.color='var(--ink-faint)';
     el('btnMonitor').disabled=false; el('btnRunAll').disabled=false; el('btnInit').disabled=false; el('btnStop').disabled=true;
   }
 
@@ -300,14 +326,19 @@
 
   function runMeter(){
     const bL=new Float32Array(analyserL.fftSize),bR=new Float32Array(analyserR.fftSize);
+    const oL=new Float32Array(outAnalyserL.fftSize),oR=new Float32Array(outAnalyserR.fftSize);
+    function peakDb(buf){let p=0;for(let i=0;i<buf.length;i++){const a=Math.abs(buf[i]);if(a>p)p=a;}return p>0?20*Math.log10(p):-100;}
+    function setBar(fillId,dbId,db){el(fillId).style.width=Math.max(0,Math.min(100,(db+60)/60*100))+'%';el(dbId).textContent=db<=-99?'−∞':db.toFixed(1);}
     function loop(){if(!analyserL)return;
       analyserL.getFloatTimeDomainData(bL);analyserR.getFloatTimeDomainData(bR);
-      let pL=0,pR=0;for(let i=0;i<bL.length;i++){const a=Math.abs(bL[i]);if(a>pL)pL=a;}for(let i=0;i<bR.length;i++){const a=Math.abs(bR[i]);if(a>pR)pR=a;}
-      const dL=pL>0?20*Math.log10(pL):-100,dR=pR>0?20*Math.log10(pR):-100;
-      el('meterL').style.width=Math.max(0,Math.min(100,(dL+60)/60*100))+'%';
-      el('meterR').style.width=Math.max(0,Math.min(100,(dR+60)/60*100))+'%';
-      el('meterLdb').textContent=dL<=-99?'−∞':dL.toFixed(1); el('meterRdb').textContent=dR<=-99?'−∞':dR.toFixed(1);
+      outAnalyserL.getFloatTimeDomainData(oL);outAnalyserR.getFloatTimeDomainData(oR);
+      const dL=peakDb(bL),dR=peakDb(bR),doL=peakDb(oL),doR=peakDb(oR);
+      setBar('meterL','meterLdb',dL); setBar('meterR','meterRdb',dR);
+      setBar('outMeterL','outMeterLdb',doL); setBar('outMeterR','outMeterRdb',doR);
       el('clipWarning').style.display=(dL>-1||dR>-1)?'inline':'none';
+      const sig=(doL>-50||doR>-50);
+      el('signalState').textContent=sig?'♪ 신호 출력 중':'신호 정지';
+      el('signalState').style.color=sig?'var(--phosphor)':'var(--ink-faint)';
       meterRaf=requestAnimationFrame(loop);}
     loop();
   }
@@ -350,9 +381,10 @@
     if(monitoring||sequenceRunning)return;
     try{await buildGraph();monitoring=true;
       const f=parseFloat(el('freq').value),lv=parseFloat(el('level').value);setOutput(f,lv,'both');
+      log(`테스트 신호 송출: ${f}Hz, ${lv}dBFS (양 채널)`);
       el('btnMonitor').disabled=true;el('btnInit').disabled=true;el('btnStop').disabled=false;
       setStatus('MONITOR','live');el('fftStatus').textContent='실시간';runMeter();runSpectrum(f);
-      log('레벨 모니터 시작. 게인을 -6dBFS에 맞추세요.');
+      log('게인을 입력 -6dBFS에 맞추세요. 출력 미터가 안 움직이면 출력 디바이스를 점검하세요.');
     }catch(err){log('모니터 실패: '+err.message,true);teardown();setStatus('ERROR','warn');}
   }
 
