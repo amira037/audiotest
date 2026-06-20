@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SINAD METER · DAC Loopback Analyzer</title>
+<style>
+  :root {
+    --bg: #0a0d0a; --bg-panel: #11150f; --bg-raised: #161b14; --grid: #1f2a1a;
+    --phosphor: #5aff9b; --phosphor-dim: #2a8557; --phosphor-bright: #9bffc7;
+    --amber: #ffb84d; --amber-dim: #8a6428; --cyan: #4dd0ff; --red: #ff5a5a;
+    --ink: #d4e8d8; --ink-dim: #6b8275; --ink-faint: #3d4a40;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--mono); min-height: 100vh; }
+  body { background-image: radial-gradient(ellipse at 50% -20%, rgba(90,255,155,0.04), transparent 60%); padding: 24px 16px 60px; }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid var(--grid); padding-bottom: 14px; margin-bottom: 18px; }
+  .brand { display: flex; flex-direction: column; gap: 2px; }
+  .brand-mark { font-size: 11px; letter-spacing: 0.25em; color: var(--phosphor-dim); }
+  .brand-name { font-size: 22px; font-weight: 700; letter-spacing: 0.04em; color: var(--phosphor-bright); text-shadow: 0 0 14px rgba(90,255,155,0.35); }
+  .brand-sub { font-size: 10.5px; color: var(--ink-dim); letter-spacing: 0.03em; }
+  .status-led { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-dim); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); transition: all 0.2s; }
+  .dot.live { background: var(--phosphor); box-shadow: 0 0 8px var(--phosphor); animation: blink 1.4s infinite; }
+  .dot.warn { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .dot.busy { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: blink 0.7s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .panel { background: var(--bg-panel); border: 1px solid var(--grid); border-radius: 3px; margin-bottom: 14px; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--grid); font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-dim); }
+  .panel-body { padding: 16px; }
+  .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .setup-grid { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 10px; letter-spacing: 0.12em; color: var(--ink-dim); display: flex; justify-content: space-between; }
+  .field label .req { color: var(--amber); }
+  select { background: var(--bg-raised); border: 1px solid var(--grid); color: var(--ink); font-family: var(--mono); font-size: 13px; padding: 9px 10px; border-radius: 2px; width: 100%; outline: none; }
+  select:focus { border-color: var(--phosphor-dim); }
+  select:disabled { opacity: 0.4; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .row-3 { grid-template-columns: 1fr; } }
+  .hint { font-size: 10.5px; color: var(--ink-faint); line-height: 1.5; margin-top: 4px; }
+  .hint.warn-text { color: var(--amber-dim); }
+  .btn { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; padding: 11px 18px; border-radius: 2px; border: 1px solid var(--grid); background: var(--bg-raised); color: var(--ink); cursor: pointer; transition: all 0.15s; }
+  .btn:hover:not(:disabled) { border-color: var(--phosphor-dim); color: var(--phosphor-bright); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-primary { background: var(--phosphor-dim); border-color: var(--phosphor-dim); color: #04140a; font-weight: 700; }
+  .btn-primary:hover:not(:disabled) { background: var(--phosphor); border-color: var(--phosphor); color: #04140a; }
+  .btn-stop { background: transparent; border-color: var(--red); color: var(--red); }
+  .btn-stop:hover:not(:disabled) { background: rgba(255,90,90,0.1); }
+  .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .level-meters { display: flex; flex-direction: column; gap: 8px; }
+  .level-row { display: flex; align-items: center; gap: 10px; }
+  .level-tag { font-size: 9.5px; color: var(--ink-dim); width: 64px; flex-shrink: 0; letter-spacing: 0.08em; }
+  .level-bar-bg { flex: 1; height: 14px; background: var(--bg-raised); border: 1px solid var(--grid); border-radius: 1px; position: relative; overflow: hidden; }
+  .level-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--phosphor-dim), var(--phosphor) 70%, var(--amber) 92%, var(--red) 98%); transition: width 0.06s linear; }
+  .level-bar-marks { position: absolute; inset: 0; background-image: repeating-linear-gradient(90deg, transparent, transparent calc(10% - 1px), rgba(0,0,0,0.4) 10%); }
+  .level-target { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--amber); left: 90%; }
+  .level-db { font-size: 10.5px; color: var(--ink-dim); width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+  canvas { display: block; width: 100%; }
+  #spectrum, #freqResponse { height: 240px; background: #060805; border-radius: 2px; }
+  .spectrum-legend { display: flex; gap: 16px; font-size: 10px; color: var(--ink-dim); padding: 8px 14px 0; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-swatch { width: 9px; height: 9px; border-radius: 1px; }
+  .results-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .results-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.12em; color: var(--ink-dim); padding: 8px 10px; border-bottom: 1px solid var(--grid); font-weight: 400; }
+  .results-table td { padding: 9px 10px; border-bottom: 1px solid rgba(31,42,26,0.5); font-variant-numeric: tabular-nums; }
+  .results-table td.metric { color: var(--ink-dim); font-size: 11px; letter-spacing: 0.05em; }
+  .results-table td.val-l { color: var(--phosphor-bright); font-weight: 700; }
+  .results-table td.val-r { color: var(--cyan); font-weight: 700; }
+  .results-table td.unit { color: var(--ink-faint); font-size: 10.5px; }
+  .results-table tr.headline td { font-size: 15px; padding: 12px 10px; }
+  .results-table tr.headline td.val-l { color: var(--phosphor); text-shadow: 0 0 12px rgba(90,255,155,0.4); }
+  .seq-steps { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .seq-step { font-size: 10px; letter-spacing: 0.06em; padding: 6px 11px; border-radius: 2px; border: 1px solid var(--grid); color: var(--ink-faint); background: var(--bg-raised); }
+  .seq-step.active { border-color: var(--amber); color: var(--amber); animation: blink 0.9s infinite; }
+  .seq-step.done { border-color: var(--phosphor-dim); color: var(--phosphor); }
+  #log { font-size: 10.5px; color: var(--ink-dim); line-height: 1.7; max-height: 110px; overflow-y: auto; padding: 10px 14px; }
+  #log div span.tag { color: var(--phosphor-dim); margin-right: 6px; }
+  #log div.err span.tag, #log div.err { color: var(--red); }
+  footer { text-align: center; font-size: 10px; color: var(--ink-faint); margin-top: 24px; letter-spacing: 0.04em; line-height: 1.8; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-raised); }
+  ::-webkit-scrollbar-thumb { background: var(--grid); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-mark">AUDIO TEST BENCH</div>
+      <div class="brand-name">SINAD&nbsp;METER</div>
+      <div class="brand-sub">DAC loopback · stereo distortion & dynamics analyzer</div>
+    </div>
+    <div class="status-led"><span class="dot" id="statusDot"></span><span id="statusText">IDLE</span></div>
+  </header>
+
+  <div class="panel">
+    <div class="panel-head"><span>01 · 신호 경로 설정</span><span id="setupBadge"></span></div>
+    <div class="panel-body">
+      <div class="setup-grid">
+        <div class="field"><label>출력 디바이스 (측정 대상 DAC) <span class="req">*</span></label><select id="outputDevice"><option>디바이스 권한 대기 중…</option></select></div>
+        <div class="field"><label>입력 디바이스 (인터페이스 CH1/2) <span class="req">*</span></label><select id="inputDevice"><option>디바이스 권한 대기 중…</option></select></div>
+      </div>
+      <div class="hint" id="sinkSupportHint" style="margin-top:10px;"></div>
+      <div class="row-3" style="margin-top:14px;">
+        <div class="field"><label>기준 주파수</label><select id="freq"><option value="100">100 Hz</option><option value="1000" selected>1 kHz (표준)</option><option value="10000">10 kHz</option></select></div>
+        <div class="field"><label>기준 레벨 (dBFS)</label><select id="level"><option value="-1" selected>-1 dBFS</option><option value="-3">-3 dBFS</option><option value="-6">-6 dBFS</option></select></div>
+        <div class="field"><label>스윕 분해능</label><select id="sweepRes"><option value="3">3 pt/oct (빠름)</option><option value="6" selected>6 pt/oct (권장)</option><option value="12">12 pt/oct (정밀)</option></select></div>
+      </div>
+      <div class="hint warn-text" style="margin-top:12px;">⚠ 측정 전 OS/브라우저의 자동 게인 제어(AGC)·에코 제거·노이즈 억제를 모두 끄세요. DAC 출력(L/R) → 인터페이스 입력 CH1/CH2로 연결합니다.</div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btnInit">디바이스 연결</button>
+        <button class="btn" id="btnMonitor" disabled>레벨 모니터</button>
+        <button class="btn btn-primary" id="btnRunAll" disabled>▶ 전체 자동 측정</button>
+        <button class="btn btn-stop" id="btnStop" disabled>■ 정지</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span>02 · 입력 레벨 모니터 (게인 조정)</span><span id="clipWarning" style="color:var(--red); display:none;">⚠ CLIPPING</span></div>
+    <div class="panel-body">
+      <div class="level-meters">
+        <div class="level-row"><span class="level-tag">CH1 / L</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-target"></div><div class="level-bar-fill" id="meterL"></div></div><span class="level-db" id="meterLdb">−∞</span></div>
+        <div class="level-row"><span class="level-tag">CH2 / R</span><div class="level-bar-bg"><div class="level-bar-marks"></div><div class="level-target"></div><div class="level-bar-fill" id="meterR"></div></div><span class="level-db" id="meterRdb">−∞</span></div>
+      </div>
+      <div class="hint" style="margin-top:10px;">노란 선 = -6dBFS 목표. CH1/CH2가 독립 표시됩니다. 두 채널 피크를 -6dBFS 근처로 맞춘 뒤 자동 측정을 실행하세요. -1dBFS 초과는 클리핑입니다.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span>03 · 측정 결과 (L / R 독립)</span><span id="seqStatus"></span></div>
+    <div class="panel-body">
+      <div class="seq-steps" id="seqSteps">
+        <span class="seq-step" data-step="sinad">SINAD / THD+N</span>
+        <span class="seq-step" data-step="snr">SNR (A-wt)</span>
+        <span class="seq-step" data-step="dnr">DNR (A-wt)</span>
+        <span class="seq-step" data-step="crosstalk">CROSSTALK</span>
+        <span class="seq-step" data-step="sweep">FREQ RESPONSE</span>
+      </div>
+      <table class="results-table">
+        <thead><tr><th style="width:42%">측정 항목</th><th style="width:24%; color:var(--phosphor-bright)">CH1 / L</th><th style="width:24%; color:var(--cyan)">CH2 / R</th><th style="width:10%">단위</th></tr></thead>
+        <tbody>
+          <tr class="headline"><td class="metric">SINAD</td><td class="val-l" id="r_sinad_l">—</td><td class="val-r" id="r_sinad_r">—</td><td class="unit">dB</td></tr>
+          <tr><td class="metric">THD+N</td><td class="val-l" id="r_thdn_l">—</td><td class="val-r" id="r_thdn_r">—</td><td class="unit">%</td></tr>
+          <tr><td class="metric">THD</td><td class="val-l" id="r_thd_l">—</td><td class="val-r" id="r_thd_r">—</td><td class="unit">dB</td></tr>
+          <tr><td class="metric">SNR (A-weighted)</td><td class="val-l" id="r_snr_l">—</td><td class="val-r" id="r_snr_r">—</td><td class="unit">dB</td></tr>
+          <tr><td class="metric">Dynamic Range (A-weighted)</td><td class="val-l" id="r_dnr_l">—</td><td class="val-r" id="r_dnr_r">—</td><td class="unit">dB</td></tr>
+          <tr><td class="metric">Crosstalk L→R / R→L</td><td class="val-l" id="r_xt_l">—</td><td class="val-r" id="r_xt_r">—</td><td class="unit">dB</td></tr>
+          <tr><td class="metric">Noise Floor (A-wt)</td><td class="val-l" id="r_noise_l">—</td><td class="val-r" id="r_noise_r">—</td><td class="unit">dBFS</td></tr>
+          <tr><td class="metric">ENOB (est.)</td><td class="val-l" id="r_enob_l">—</td><td class="val-r" id="r_enob_r">—</td><td class="unit">bits</td></tr>
+          <tr><td class="metric">FR deviation (±)</td><td class="val-l" id="r_fr_l">—</td><td class="val-r" id="r_fr_r">—</td><td class="unit">dB</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span>04 · 실시간 스펙트럼 (FFT 16384)</span><span id="fftStatus">대기 중</span></div>
+    <div class="spectrum-legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--phosphor)"></span>CH1/L</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--cyan)"></span>CH2/R</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span>기본파</span>
+    </div>
+    <div class="panel-body" style="padding-top:10px;"><canvas id="spectrum"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span>05 · 주파수 응답 (20Hz – 20kHz 로그 스윕)</span><span id="frStatus">대기 중</span></div>
+    <div class="panel-body" style="padding-top:10px;"><canvas id="freqResponse"></canvas></div>
+  </div>
+
+  <div class="panel"><div class="panel-head"><span>SYSTEM LOG</span></div><div id="log"></div></div>
+
+  <footer>측정값은 DAC(출력) + 인터페이스 ADC(입력)의 합성 성능입니다.<br>SNR/DNR은 무신호·저레벨 구간 비교로, 크로스토크는 한쪽 채널만 구동해 반대 채널 누설을 측정합니다.</footer>
+</div>
+
+<script>
+(function(){
+  const FFT_SIZE = 16384, SETTLE_MS = 400, CAPTURE_MS = 600;
+  let audioCtx=null, osc=null, streamDest=null, outEl=null, chMerger=null, gainL=null, gainR=null;
+  let mediaStream=null, source=null, splitter=null, analyserL=null, analyserR=null;
+  let monitoring=false, sequenceRunning=false, aborted=false, meterRaf=null, specRaf=null;
+  let frDataL=[], frDataR=[];
+  const el = id => document.getElementById(id);
+  const logEl = el('log');
+  function log(msg,isErr){const d=document.createElement('div');if(isErr)d.className='err';const t=new Date().toLocaleTimeString('en-GB');d.innerHTML=`<span class="tag">${t}</span>${msg}`;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
+  function setStatus(t,m){el('statusText').textContent=t;el('statusDot').className='dot'+(m?' '+m:'');}
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+  async function initDevices(){
+    try{
+      const tmp=await navigator.mediaDevices.getUserMedia({audio:true}); tmp.getTracks().forEach(t=>t.stop());
+      const devices=await navigator.mediaDevices.enumerateDevices();
+      const outSel=el('outputDevice'),inSel=el('inputDevice'); outSel.innerHTML='';inSel.innerHTML='';
+      devices.filter(d=>d.kind==='audiooutput').forEach(d=>{const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`출력 (${d.deviceId.slice(0,6)})`;outSel.appendChild(o);});
+      devices.filter(d=>d.kind==='audioinput').forEach(d=>{const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`입력 (${d.deviceId.slice(0,6)})`;inSel.appendChild(o);});
+      const te=document.createElement('audio');
+      if(typeof te.setSinkId!=='function'){el('sinkSupportHint').innerHTML='⚠ 이 브라우저는 출력 디바이스 선택(setSinkId)을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.';el('sinkSupportHint').classList.add('warn-text');}
+      else{el('sinkSupportHint').textContent='✓ 출력 디바이스 선택 지원됨.';}
+      el('btnMonitor').disabled=false; el('btnRunAll').disabled=false;
+      el('setupBadge').textContent='연결됨'; el('setupBadge').style.color='var(--phosphor)';
+      setStatus('READY','live'); log('디바이스 목록을 불러왔습니다.');
+    }catch(err){log('디바이스 접근 실패: '+err.message,true);setStatus('ERROR','warn');}
+  }
+
+  async function buildGraph(){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const outId=el('outputDevice').value, inId=el('inputDevice').value;
+    if(!outId||!inId) throw new Error('출력/입력 디바이스를 선택하세요.');
+    osc=audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=parseFloat(el('freq').value);
+    streamDest=audioCtx.createMediaStreamDestination();
+    chMerger=audioCtx.createChannelMerger(2);
+    gainL=audioCtx.createGain(); gainR=audioCtx.createGain(); gainL.gain.value=0; gainR.gain.value=0;
+    osc.connect(gainL); osc.connect(gainR);
+    gainL.connect(chMerger,0,0); gainR.connect(chMerger,0,1);
+    chMerger.connect(streamDest);
+    outEl=document.createElement('audio'); outEl.srcObject=streamDest.stream; outEl.autoplay=true;
+    if(typeof outEl.setSinkId==='function'){await outEl.setSinkId(outId);}
+    osc.start(); await outEl.play().catch(()=>{});
+    mediaStream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:inId},autoGainControl:false,echoCancellation:false,noiseSuppression:false,channelCount:2,sampleRate:audioCtx.sampleRate}});
+    source=audioCtx.createMediaStreamSource(mediaStream);
+    splitter=audioCtx.createChannelSplitter(2); source.connect(splitter);
+    analyserL=audioCtx.createAnalyser(); analyserL.fftSize=FFT_SIZE; analyserL.smoothingTimeConstant=0;
+    analyserR=audioCtx.createAnalyser(); analyserR.fftSize=FFT_SIZE; analyserR.smoothingTimeConstant=0;
+    splitter.connect(analyserL,0); splitter.connect(analyserR,1);
+  }
+
+  function setOutput(freq,levelDb,channels){
+    const lin=levelDb<=-200?0:Math.pow(10,levelDb/20);
+    if(osc) osc.frequency.setValueAtTime(freq,audioCtx.currentTime);
+    const l=(channels==='both'||channels==='L')?lin:0, r=(channels==='both'||channels==='R')?lin:0;
+    gainL.gain.setValueAtTime(l,audioCtx.currentTime); gainR.gain.setValueAtTime(r,audioCtx.currentTime);
+  }
+
+  function teardown(){
+    monitoring=false; sequenceRunning=false;
+    if(meterRaf)cancelAnimationFrame(meterRaf); if(specRaf)cancelAnimationFrame(specRaf);
+    try{if(osc)osc.stop();}catch(e){}
+    if(mediaStream)mediaStream.getTracks().forEach(t=>t.stop());
+    if(outEl){outEl.pause();outEl.srcObject=null;}
+    if(audioCtx)audioCtx.close().catch(()=>{});
+    audioCtx=osc=streamDest=outEl=null; mediaStream=source=splitter=analyserL=analyserR=null;
+    el('meterL').style.width='0%'; el('meterR').style.width='0%';
+    el('meterLdb').textContent='−∞'; el('meterRdb').textContent='−∞'; el('clipWarning').style.display='none';
+    el('btnMonitor').disabled=false; el('btnRunAll').disabled=false; el('btnInit').disabled=false; el('btnStop').disabled=true;
+  }
+
+  function fft(realInput){
+    const N=realInput.length; const re=Float64Array.from(realInput),im=new Float64Array(N);
+    for(let i=1,j=0;i<N;i++){let bit=N>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){let tr=re[i];re[i]=re[j];re[j]=tr;let ti=im[i];im[i]=im[j];im[j]=ti;}}
+    for(let len=2;len<=N;len<<=1){const ang=-2*Math.PI/len,wr=Math.cos(ang),wi=Math.sin(ang);
+      for(let i=0;i<N;i+=len){let cWr=1,cWi=0;
+        for(let j=0;j<len/2;j++){const ur=re[i+j],ui=im[i+j];const vr=re[i+j+len/2]*cWr-im[i+j+len/2]*cWi,vi=re[i+j+len/2]*cWi+im[i+j+len/2]*cWr;re[i+j]=ur+vr;im[i+j]=ui+vi;re[i+j+len/2]=ur-vr;im[i+j+len/2]=ui-vi;const nWr=cWr*wr-cWi*wi,nWi=cWr*wi+cWi*wr;cWr=nWr;cWi=nWi;}}}
+    return {re,im};
+  }
+
+  // IEC 61672 A-weighting transfer function, returns linear POWER gain at frequency f
+  function aWeightPowerGain(f){
+    if(f<=0)return 0;
+    const f2=f*f, c1=20.598997*20.598997, c2=107.65265*107.65265, c3=737.86223*737.86223, c4=12194.217*12194.217;
+    const ra=(c4*f2*f2)/((f2+c1)*Math.sqrt((f2+c2)*(f2+c3))*(f2+c4));
+    const db=20*Math.log10(ra)+2.00; // normalized to 0 dB at 1 kHz
+    return Math.pow(10, db/10);
+  }
+
+  function analyze(timeData,fundFreq){
+    const N=timeData.length,sr=audioCtx.sampleRate;
+    const windowed=new Float64Array(N);let cs=0;
+    for(let i=0;i<N;i++){const a0=0.35875,a1=0.48829,a2=0.14128,a3=0.01168;const w=a0-a1*Math.cos(2*Math.PI*i/(N-1))+a2*Math.cos(4*Math.PI*i/(N-1))-a3*Math.cos(6*Math.PI*i/(N-1));windowed[i]=timeData[i]*w;cs+=w;}
+    const refP=Math.pow(cs/2,2)*2;
+    const {re,im}=fft(windowed); const mag2=new Float64Array(N/2);
+    for(let i=0;i<N/2;i++)mag2[i]=re[i]*re[i]+im[i]*im[i];
+    const binHz=sr/N,span=3,fundBin=Math.round(fundFreq/binHz);
+    const bp=c=>{let s=0;for(let b=c-span;b<=c+span;b++)if(b>=1&&b<mag2.length)s+=mag2[b];return s;};
+    const total=mag2.reduce((a,b,i)=>i>=1?a+b:a,0); const fundPower=bp(fundBin);
+    let harmPower=0;const harmDb={};
+    for(let h=2;h<=5;h++){const hb=Math.round(fundFreq*h/binHz);if(hb>=mag2.length)continue;const p=bp(hb);harmPower+=p;if(h<=3)harmDb[h]=10*Math.log10(p/fundPower);}
+    const nd=Math.max(total-fundPower,1e-300);
+    // A-weighted total noise+distortion power (excludes fundamental bins, weights each bin by A-curve)
+    let ndA=0, totalA=0;
+    for(let b=1;b<mag2.length;b++){
+      const g=aWeightPowerGain(b*binHz);
+      totalA+=mag2[b]*g;
+      if(Math.abs(b-fundBin)<=span)continue;
+      ndA+=mag2[b]*g;
+    }
+    let ns=0,nc=0;
+    for(let b=1;b<mag2.length;b++){let sk=Math.abs(b-fundBin)<=span;for(let h=2;h<=5;h++){if(Math.abs(b-Math.round(fundFreq*h/binHz))<=span)sk=true;}if(sk)continue;ns+=mag2[b];nc++;}
+    const avgN=nc>0?ns/nc:0;
+    return {refP,total,totalA,fundPower,harmPower,harmDb,fundBin,binHz,nd,ndA:Math.max(ndA,1e-300),
+      fundDbfs:10*Math.log10(fundPower/refP), totalDbfs:10*Math.log10(total/refP),
+      totalDbfsA:10*Math.log10(Math.max(totalA,1e-300)/refP),
+      sinad:10*Math.log10(fundPower/nd), thd:harmPower>0?10*Math.log10(harmPower/fundPower):-Infinity,
+      thdnPct:Math.sqrt(nd/fundPower)*100, noiseFloorDbfs:avgN>0?10*Math.log10(avgN/refP):-Infinity};
+  }
+  function captureTime(a){const buf=new Float32Array(a.fftSize);a.getFloatTimeDomainData(buf);return buf;}
+
+  function runMeter(){
+    const bL=new Float32Array(analyserL.fftSize),bR=new Float32Array(analyserR.fftSize);
+    function loop(){if(!analyserL)return;
+      analyserL.getFloatTimeDomainData(bL);analyserR.getFloatTimeDomainData(bR);
+      let pL=0,pR=0;for(let i=0;i<bL.length;i++){const a=Math.abs(bL[i]);if(a>pL)pL=a;}for(let i=0;i<bR.length;i++){const a=Math.abs(bR[i]);if(a>pR)pR=a;}
+      const dL=pL>0?20*Math.log10(pL):-100,dR=pR>0?20*Math.log10(pR):-100;
+      el('meterL').style.width=Math.max(0,Math.min(100,(dL+60)/60*100))+'%';
+      el('meterR').style.width=Math.max(0,Math.min(100,(dR+60)/60*100))+'%';
+      el('meterLdb').textContent=dL<=-99?'−∞':dL.toFixed(1); el('meterRdb').textContent=dR<=-99?'−∞':dR.toFixed(1);
+      el('clipWarning').style.display=(dL>-1||dR>-1)?'inline':'none';
+      meterRaf=requestAnimationFrame(loop);}
+    loop();
+  }
+
+  const canvas=el('spectrum'),ctx=canvas.getContext('2d');
+  function resize(c){const dpr=window.devicePixelRatio||1,r=c.getBoundingClientRect();c.width=r.width*dpr;c.height=240*dpr;c.getContext('2d').setTransform(dpr,0,0,dpr,0,0);}
+  window.addEventListener('resize',()=>{resize(canvas);resize(el('freqResponse'));drawFR();});
+  function freqToX(f,sr,W){const lo=Math.log10(20),hi=Math.log10(sr/2);return (Math.log10(Math.max(f,20))-lo)/(hi-lo)*W;}
+  function runSpectrum(fundFreq){
+    resize(canvas);
+    const dL=new Float32Array(analyserL.frequencyBinCount),dR=new Float32Array(analyserR.frequencyBinCount);
+    function loop(){if(!analyserL)return;analyserL.getFloatFrequencyData(dL);analyserR.getFloatFrequencyData(dR);drawSpectrum(dL,dR,fundFreq);specRaf=requestAnimationFrame(loop);}
+    loop();
+  }
+  function drawSpectrum(dL,dR,fundFreq){
+    const r=canvas.getBoundingClientRect(),W=r.width,H=240;ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle='rgba(90,255,155,0.08)';ctx.lineWidth=1;ctx.font='9px monospace';ctx.fillStyle='#3d4a40';
+    [0,-20,-40,-60,-80,-100,-120].forEach(db=>{const y=H-((db+140)/140)*H;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();ctx.fillText(db+'dB',4,y-2);});
+    const sr=audioCtx.sampleRate;
+    [20,50,100,500,1000,5000,10000,20000].forEach(f=>{if(f>sr/2)return;const x=freqToX(f,sr,W);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();ctx.fillText(f>=1000?(f/1000)+'k':f,x+2,H-4);});
+    const nyq=sr/2;
+    function dl(data,color){ctx.strokeStyle=color;ctx.lineWidth=1.2;ctx.beginPath();let st=false;for(let i=1;i<data.length;i++){const f=i*nyq/data.length;if(f<20)continue;const x=freqToX(f,sr,W);const db=Math.max(-140,data[i]);const y=H-((db+140)/140)*H;if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);}ctx.stroke();}
+    dl(dR,'#4dd0ff');dl(dL,'#5aff9b');
+    const fx=freqToX(fundFreq,sr,W);ctx.strokeStyle='#ffb84d';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(fx,0);ctx.lineTo(fx,H);ctx.stroke();ctx.setLineDash([]);
+  }
+
+  const frCanvas=el('freqResponse'),frCtx=frCanvas.getContext('2d');
+  function drawFR(){
+    resize(frCanvas);const r=frCanvas.getBoundingClientRect(),W=r.width,H=240;frCtx.clearRect(0,0,W,H);
+    frCtx.strokeStyle='rgba(90,255,155,0.08)';frCtx.lineWidth=1;frCtx.font='9px monospace';frCtx.fillStyle='#3d4a40';
+    const dbMin=-6,dbMax=6;
+    [6,3,0,-3,-6].forEach(db=>{const y=H-((db-dbMin)/(dbMax-dbMin))*H;frCtx.beginPath();frCtx.moveTo(0,y);frCtx.lineTo(W,y);frCtx.stroke();frCtx.fillText((db>0?'+':'')+db+'dB',4,y-2);});
+    const sr=audioCtx?audioCtx.sampleRate:48000;
+    [20,50,100,500,1000,5000,10000,20000].forEach(f=>{const x=freqToX(f,sr,W);frCtx.beginPath();frCtx.moveTo(x,0);frCtx.lineTo(x,H);frCtx.stroke();frCtx.fillText(f>=1000?(f/1000)+'k':f,x+2,H-4);});
+    function plot(data,color){if(data.length<2)return;frCtx.strokeStyle=color;frCtx.lineWidth=1.6;frCtx.beginPath();data.forEach((p,i)=>{const x=freqToX(p.freq,sr,W);const y=H-((Math.max(dbMin,Math.min(dbMax,p.db))-dbMin)/(dbMax-dbMin))*H;if(i===0)frCtx.moveTo(x,y);else frCtx.lineTo(x,y);});frCtx.stroke();frCtx.fillStyle=color;data.forEach(p=>{const x=freqToX(p.freq,sr,W);const y=H-((Math.max(dbMin,Math.min(dbMax,p.db))-dbMin)/(dbMax-dbMin))*H;frCtx.fillRect(x-1.5,y-1.5,3,3);});}
+    plot(frDataR,'#4dd0ff');plot(frDataL,'#5aff9b');
+  }
+
+  async function startMonitor(){
+    if(monitoring||sequenceRunning)return;
+    try{await buildGraph();monitoring=true;
+      const f=parseFloat(el('freq').value),lv=parseFloat(el('level').value);setOutput(f,lv,'both');
+      el('btnMonitor').disabled=true;el('btnInit').disabled=true;el('btnStop').disabled=false;
+      setStatus('MONITOR','live');el('fftStatus').textContent='실시간';runMeter();runSpectrum(f);
+      log('레벨 모니터 시작. 게인을 -6dBFS에 맞추세요.');
+    }catch(err){log('모니터 실패: '+err.message,true);teardown();setStatus('ERROR','warn');}
+  }
+
+  async function runAll(){
+    if(sequenceRunning)return; aborted=false; resetResults();
+    try{
+      if(!audioCtx)await buildGraph();
+      sequenceRunning=true;monitoring=true;
+      el('btnMonitor').disabled=true;el('btnRunAll').disabled=true;el('btnInit').disabled=true;el('btnStop').disabled=false;
+      setStatus('SEQUENCE','busy');
+      const f=parseFloat(el('freq').value),lv=parseFloat(el('level').value);
+      runMeter();runSpectrum(f);
+
+      await step('sinad',async()=>{
+        setOutput(f,lv,'both');await sleep(SETTLE_MS);await sleep(CAPTURE_MS);
+        const aL=analyze(captureTime(analyserL),f),aR=analyze(captureTime(analyserR),f);
+        setVal('r_sinad_l',aL.sinad.toFixed(1));setVal('r_sinad_r',aR.sinad.toFixed(1));
+        setVal('r_thdn_l',fmtPct(aL.thdnPct));setVal('r_thdn_r',fmtPct(aR.thdnPct));
+        setVal('r_thd_l',isFinite(aL.thd)?aL.thd.toFixed(1):'−∞');setVal('r_thd_r',isFinite(aR.thd)?aR.thd.toFixed(1):'−∞');
+        setVal('r_enob_l',((aL.sinad-1.76)/6.02).toFixed(2));setVal('r_enob_r',((aR.sinad-1.76)/6.02).toFixed(2));
+        log(`SINAD — L ${aL.sinad.toFixed(1)}dB / R ${aR.sinad.toFixed(1)}dB`);});
+      if(aborted)return finishSeq();
+
+      await step('snr',async()=>{
+        setOutput(f,lv,'both');await sleep(SETTLE_MS);await sleep(CAPTURE_MS);
+        const sigL=analyze(captureTime(analyserL),f),sigR=analyze(captureTime(analyserR),f);
+        setOutput(f,-300,'off');await sleep(SETTLE_MS);await sleep(CAPTURE_MS);
+        const silL=analyze(captureTime(analyserL),f),silR=analyze(captureTime(analyserR),f);
+        // A-weighted: signal fundamental vs A-weighted silence noise, referenced to full scale
+        const snrL=10*Math.log10(sigL.fundPower/Math.max(silL.totalA,1e-300))-lv;
+        const snrR=10*Math.log10(sigR.fundPower/Math.max(silR.totalA,1e-300))-lv;
+        setVal('r_snr_l',snrL.toFixed(1));setVal('r_snr_r',snrR.toFixed(1));
+        setVal('r_noise_l',silL.totalDbfsA.toFixed(1));setVal('r_noise_r',silR.totalDbfsA.toFixed(1));
+        log(`SNR (A-wt) — L ${snrL.toFixed(1)}dB / R ${snrR.toFixed(1)}dB`);});
+      if(aborted)return finishSeq();
+
+      await step('dnr',async()=>{
+        setOutput(f,-60,'both');await sleep(SETTLE_MS);await sleep(CAPTURE_MS);
+        const aL=analyze(captureTime(analyserL),f),aR=analyze(captureTime(analyserR),f);
+        // A-weighted SINAD at -60dBFS, then referenced back to full scale (+60dB)
+        const dnrL=10*Math.log10(aL.fundPower/aL.ndA)+60, dnrR=10*Math.log10(aR.fundPower/aR.ndA)+60;
+        setVal('r_dnr_l',dnrL.toFixed(1));setVal('r_dnr_r',dnrR.toFixed(1));
+        log(`DNR (A-wt) — L ${dnrL.toFixed(1)}dB / R ${dnrR.toFixed(1)}dB`);});
+      if(aborted)return finishSeq();
+
+      await step('crosstalk',async()=>{
+        setOutput(f,lv,'L');await sleep(SETTLE_MS);await sleep(CAPTURE_MS);
+        const drvL=analyze(captureTime(analyserL),f),leakR=analyze(captureTime(analyserR),f);
+        const xtLR=leakR.fundDbfs-drvL.fundDbfs;
+        setOutput(f,lv,'R');await sleep(SETTLE_MS);await sleep(CAPTURE_MS);
+        const drvR=analyze(captureTime(analyserR),f),leakL=analyze(captureTime(analyserL),f);
+        const xtRL=leakL.fundDbfs-drvR.fundDbfs;
+        setVal('r_xt_l',xtLR.toFixed(1));setVal('r_xt_r',xtRL.toFixed(1));
+        log(`Crosstalk — L→R ${xtLR.toFixed(1)}dB / R→L ${xtRL.toFixed(1)}dB`);});
+      if(aborted)return finishSeq();
+
+      await step('sweep',async()=>{
+        el('frStatus').textContent='스윕 중…';frDataL=[];frDataR=[];
+        const ppo=parseInt(el('sweepRes').value);
+        const fStart=20,fEnd=Math.min(20000,audioCtx.sampleRate/2-1000);
+        const oct=Math.log2(fEnd/fStart),nPts=Math.ceil(oct*ppo);
+        for(let i=0;i<=nPts;i++){if(aborted)break;
+          const fp=fStart*Math.pow(2,oct*i/nPts);
+          setOutput(fp,lv,'both');await sleep(120);await sleep(140);
+          const aL=analyze(captureTime(analyserL),fp),aR=analyze(captureTime(analyserR),fp);
+          frDataL.push({freq:fp,dbAbs:aL.fundDbfs});frDataR.push({freq:fp,dbAbs:aR.fundDbfs});
+          el('frStatus').textContent=`스윕 ${i+1}/${nPts+1} · ${fp<1000?fp.toFixed(0)+'Hz':(fp/1000).toFixed(2)+'kHz'}`;
+          const ref1k=arr=>{let best=arr[0],bd=1e9;arr.forEach(p=>{const d=Math.abs(p.freq-1000);if(d<bd){bd=d;best=p;}});return best.dbAbs;};
+          const rL=ref1k(frDataL),rR=ref1k(frDataR);frDataL.forEach(p=>p.db=p.dbAbs-rL);frDataR.forEach(p=>p.db=p.dbAbs-rR);drawFR();}
+        const devL=frDataL.reduce((m,p)=>Math.max(m,Math.abs(p.db)),0),devR=frDataR.reduce((m,p)=>Math.max(m,Math.abs(p.db)),0);
+        setVal('r_fr_l','±'+devL.toFixed(2));setVal('r_fr_r','±'+devR.toFixed(2));
+        el('frStatus').textContent='완료';
+        log(`Freq response — L ±${devL.toFixed(2)}dB / R ±${devR.toFixed(2)}dB`);});
+
+      finishSeq();
+    }catch(err){log('시퀀스 오류: '+err.message,true);teardown();setStatus('ERROR','warn');}
+  }
+
+  async function step(name,fn){
+    if(aborted)return;
+    const node=document.querySelector(`.seq-step[data-step="${name}"]`);
+    node.classList.add('active');el('seqStatus').textContent=node.textContent+' 측정 중…';
+    await fn();node.classList.remove('active');node.classList.add('done');
+  }
+  function finishSeq(){
+    if(gainL)setOutput(parseFloat(el('freq').value),-300,'off');
+    sequenceRunning=false;
+    el('seqStatus').textContent=aborted?'중단됨':'전체 완료';
+    setStatus(aborted?'STOPPED':'DONE','live');
+    log(aborted?'시퀀스를 중단했습니다.':'전체 자동 측정 완료.');
+    el('btnStop').disabled=false;
+  }
+  function setVal(id,v){el(id).textContent=v;}
+  function fmtPct(p){return p<0.0001?p.toExponential(2):p.toFixed(4);}
+  function resetResults(){
+    ['sinad','thdn','thd','snr','dnr','xt','noise','enob','fr'].forEach(k=>{setVal('r_'+k+'_l','—');setVal('r_'+k+'_r','—');});
+    document.querySelectorAll('.seq-step').forEach(s=>s.classList.remove('active','done'));frDataL=[];frDataR=[];
+  }
+
+  el('btnInit').addEventListener('click',initDevices);
+  el('btnMonitor').addEventListener('click',startMonitor);
+  el('btnRunAll').addEventListener('click',runAll);
+  el('btnStop').addEventListener('click',()=>{aborted=true;teardown();setStatus('IDLE','');log('정지했습니다.');});
+  resize(canvas);resize(frCanvas);
+  log('SINAD METER 준비 완료. "디바이스 연결"을 눌러 시작하세요.');
+})();
+</script>
+</body>
+</html>
