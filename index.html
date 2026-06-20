@@ -216,27 +216,41 @@
   }
 
   async function buildGraph(){
-    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
     const outId=el('outputDevice').value, inId=el('inputDevice').value;
     if(!outId||!inId) throw new Error('출력/입력 디바이스를 선택하세요.');
     log('오디오 그래프 생성 중… 출력='+el('outputDevice').selectedOptions[0].textContent+' / 입력='+el('inputDevice').selectedOptions[0].textContent);
+
+    // Create AudioContext routed directly to the chosen output device (Chrome 110+).
+    // This avoids the <audio>+MediaStreamDestination workaround that is unreliable on macOS.
+    const supportsCtxSink = ('setSinkId' in (window.AudioContext && AudioContext.prototype || {}));
+    if(supportsCtxSink){
+      try{
+        audioCtx=new AudioContext({ sinkId: outId });
+        log('✓ AudioContext가 선택한 출력 장치로 생성됨.');
+      }catch(e){
+        audioCtx=new AudioContext();
+        try{ await audioCtx.setSinkId(outId); log('✓ AudioContext.setSinkId 라우팅 성공.'); }
+        catch(e2){ log('✗ AudioContext.setSinkId 실패 ('+e2.name+'): 시스템 기본 출력으로 재생됩니다.', true); }
+      }
+    } else {
+      audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+      log('✗ 이 브라우저는 AudioContext.setSinkId 미지원 (Chrome 110+ 필요) — 시스템 기본 출력으로 재생됩니다.', true);
+    }
+    if(audioCtx.state==='suspended') await audioCtx.resume();
+
     osc=audioCtx.createOscillator(); osc.type='sine'; osc.frequency.value=parseFloat(el('freq').value);
-    streamDest=audioCtx.createMediaStreamDestination();
     chMerger=audioCtx.createChannelMerger(2);
     gainL=audioCtx.createGain(); gainR=audioCtx.createGain(); gainL.gain.value=0; gainR.gain.value=0;
     osc.connect(gainL); osc.connect(gainR);
     gainL.connect(chMerger,0,0); gainR.connect(chMerger,0,1);
-    chMerger.connect(streamDest);
-    // output analysers (tap the signal we send out, per channel)
+    chMerger.connect(audioCtx.destination); // straight to the (routed) output device
+    // output analysers (tap per channel)
     outAnalyserL=audioCtx.createAnalyser(); outAnalyserL.fftSize=2048; outAnalyserL.smoothingTimeConstant=0;
     outAnalyserR=audioCtx.createAnalyser(); outAnalyserR.fftSize=2048; outAnalyserR.smoothingTimeConstant=0;
     gainL.connect(outAnalyserL); gainR.connect(outAnalyserR);
-    outEl=document.createElement('audio'); outEl.srcObject=streamDest.stream; outEl.autoplay=true;
-    if(typeof outEl.setSinkId==='function'){
-      try{ await outEl.setSinkId(outId); log('✓ 출력 디바이스 라우팅 성공: '+el('outputDevice').selectedOptions[0].textContent); }
-      catch(e){ log('✗ setSinkId 실패 ('+e.name+'): 시스템 기본 출력으로 재생됩니다. 출력 디바이스를 다시 선택해 보세요.', true); }
-    } else { log('✗ 이 브라우저는 setSinkId 미지원 — 시스템 기본 출력으로 재생됩니다.', true); }
-    osc.start(); await outEl.play().catch(e=>log('재생 시작 경고: '+e.message,true));
+    osc.start();
+    log('현재 출력 라우팅: '+(audioCtx.sinkId===''||audioCtx.sinkId==null?'시스템 기본':'선택한 장치')+' (sinkId='+JSON.stringify(audioCtx.sinkId)+')');
+
     log('입력 캡처 요청 중… (AGC/에코제거/노이즈억제 비활성화)');
     mediaStream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:inId},autoGainControl:false,echoCancellation:false,noiseSuppression:false,channelCount:2,sampleRate:audioCtx.sampleRate}});
     const trackLabel=mediaStream.getAudioTracks()[0]?.label||'(이름없음)';
