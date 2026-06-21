@@ -38,6 +38,11 @@
   select { background: var(--bg-raised); border: 1px solid var(--grid); color: var(--ink); font-family: var(--mono); font-size: 13px; padding: 9px 10px; border-radius: 2px; width: 100%; outline: none; }
   select:focus { border-color: var(--phosphor-dim); }
   select:disabled { opacity: 0.4; }
+  .level-slider-wrap { display:flex; align-items:center; gap:10px; }
+  input[type=range].lvl { -webkit-appearance:none; appearance:none; flex:1; height:4px; background:var(--grid); border-radius:2px; outline:none; }
+  input[type=range].lvl::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:16px; height:16px; border-radius:50%; background:var(--phosphor); cursor:pointer; box-shadow:0 0 8px rgba(90,255,155,0.5); }
+  input[type=range].lvl::-moz-range-thumb { width:16px; height:16px; border:none; border-radius:50%; background:var(--phosphor); cursor:pointer; box-shadow:0 0 8px rgba(90,255,155,0.5); }
+  .lvl-readout { font-size:13px; color:var(--phosphor-bright); font-variant-numeric:tabular-nums; min-width:64px; text-align:right; font-weight:700; }
   .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
   @media (max-width: 560px) { .row-3 { grid-template-columns: 1fr; } }
   .hint { font-size: 10.5px; color: var(--ink-faint); line-height: 1.5; margin-top: 4px; }
@@ -104,10 +109,16 @@
         <div class="field"><label>입력 디바이스 (인터페이스 CH1/2) <span class="req">*</span></label><select id="inputDevice"><option>디바이스 권한 대기 중…</option></select></div>
       </div>
       <div class="hint" id="sinkSupportHint" style="margin-top:10px;"></div>
-      <div class="row-3" style="margin-top:14px;">
+      <div class="row-2" style="margin-top:14px;">
         <div class="field"><label>기준 주파수</label><select id="freq"><option value="100">100 Hz</option><option value="1000" selected>1 kHz (표준)</option><option value="10000">10 kHz</option></select></div>
-        <div class="field"><label>기준 레벨 (dBFS)</label><select id="level"><option value="-1" selected>-1 dBFS</option><option value="-3">-3 dBFS</option><option value="-6">-6 dBFS</option></select></div>
         <div class="field"><label>스윕 분해능</label><select id="sweepRes"><option value="3">3 pt/oct (빠름)</option><option value="6" selected>6 pt/oct (권장)</option><option value="12">12 pt/oct (정밀)</option></select></div>
+      </div>
+      <div class="field" style="margin-top:14px;">
+        <label>기준 출력 레벨 (dBFS) <span style="color:var(--ink-faint);">— 모니터 중 실시간 조정 가능</span></label>
+        <div class="level-slider-wrap">
+          <input type="range" class="lvl" id="level" min="-60" max="0" step="0.5" value="-1">
+          <span class="lvl-readout" id="levelReadout">-1.0 dBFS</span>
+        </div>
       </div>
       <div class="hint warn-text" style="margin-top:12px;">⚠ 측정 전 OS/브라우저의 자동 게인 제어(AGC)·에코 제거·노이즈 억제를 모두 끄세요. DAC 출력(L/R) → 인터페이스 입력 CH1/CH2로 연결합니다.</div>
       <div class="btn-row">
@@ -314,21 +325,25 @@
     const {re,im}=fft(windowed); const mag2=new Float64Array(N/2);
     for(let i=0;i<N/2;i++)mag2[i]=re[i]*re[i]+im[i]*im[i];
     const binHz=sr/N,span=3,fundBin=Math.round(fundFreq/binHz);
+    // Standard THD+N / SINAD measurement bandwidth: 20 Hz – 20 kHz.
+    // Bins outside this band (sub-20Hz rumble, >20kHz converter/aliasing noise) are excluded.
+    const bandLo=Math.max(1,Math.floor(20/binHz)), bandHi=Math.min(mag2.length-1,Math.ceil(20000/binHz));
     const bp=c=>{let s=0;for(let b=c-span;b<=c+span;b++)if(b>=1&&b<mag2.length)s+=mag2[b];return s;};
-    const total=mag2.reduce((a,b,i)=>i>=1?a+b:a,0); const fundPower=bp(fundBin);
+    let total=0; for(let b=bandLo;b<=bandHi;b++) total+=mag2[b];
+    const fundPower=bp(fundBin);
     let harmPower=0;const harmDb={};
     for(let h=2;h<=5;h++){const hb=Math.round(fundFreq*h/binHz);if(hb>=mag2.length)continue;const p=bp(hb);harmPower+=p;if(h<=3)harmDb[h]=10*Math.log10(p/fundPower);}
     const nd=Math.max(total-fundPower,1e-300);
-    // A-weighted total noise+distortion power (excludes fundamental bins, weights each bin by A-curve)
+    // A-weighted total noise+distortion power (within band, weighted by A-curve)
     let ndA=0, totalA=0;
-    for(let b=1;b<mag2.length;b++){
+    for(let b=bandLo;b<=bandHi;b++){
       const g=aWeightPowerGain(b*binHz);
       totalA+=mag2[b]*g;
       if(Math.abs(b-fundBin)<=span)continue;
       ndA+=mag2[b]*g;
     }
     let ns=0,nc=0;
-    for(let b=1;b<mag2.length;b++){let sk=Math.abs(b-fundBin)<=span;for(let h=2;h<=5;h++){if(Math.abs(b-Math.round(fundFreq*h/binHz))<=span)sk=true;}if(sk)continue;ns+=mag2[b];nc++;}
+    for(let b=bandLo;b<=bandHi;b++){let sk=Math.abs(b-fundBin)<=span;for(let h=2;h<=5;h++){if(Math.abs(b-Math.round(fundFreq*h/binHz))<=span)sk=true;}if(sk)continue;ns+=mag2[b];nc++;}
     const avgN=nc>0?ns/nc:0;
     return {refP,total,totalA,fundPower,harmPower,harmDb,fundBin,binHz,nd,ndA:Math.max(ndA,1e-300),
       fundDbfs:10*Math.log10(fundPower/refP), totalDbfs:10*Math.log10(total/refP),
@@ -500,6 +515,14 @@
 
   el('btnInit').addEventListener('click',initDevices);
   el('btnMonitor').addEventListener('click',startMonitor);
+  el('level').addEventListener('input',()=>{
+    const lv=parseFloat(el('level').value);
+    el('levelReadout').textContent=lv.toFixed(1)+' dBFS';
+    // if currently monitoring (not during the automated sequence), apply live
+    if(monitoring && !sequenceRunning && gainL){
+      setOutput(parseFloat(el('freq').value),lv,'both');
+    }
+  });
   el('btnRunAll').addEventListener('click',runAll);
   el('btnStop').addEventListener('click',()=>{aborted=true;teardown();setStatus('IDLE','');log('정지했습니다.');});
   resize(canvas);resize(frCanvas);
